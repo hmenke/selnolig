@@ -82,6 +82,50 @@ local unicode_find = function(s, pattern, position)
   end
 end
 
+local function add_kerns(head)
+    -- Distance to the previous glyph
+    local distance = -1
+
+    for n in node.traverse(head) do
+        if n.id == node.id"hlist" or n.id == node.id"vlist" then
+            add_kerns(n.list)
+        elseif n.id == node.id"glyph" then
+            distance = 0
+        elseif n.id == node.id"whatsit" and n.user_id == identifier then
+            -- If we encounter the user defined whatsit, we insert to
+            -- appropriate kerning
+
+            -- Get the past glyph
+            local prev = n
+            for d = 1,distance do
+                prev = prev.prev
+            end
+
+            -- Look up the kern
+            local f = n.next.font
+            local tfmdata = fonts.hashes.identifiers[f]
+            local kern = node.new("kern")
+            kind = nil -- TODO: Determine kind from somewhere
+            kern.kern = fonts.handlers.otf.getkern(tfmdata,prev.char,n.next.char,kind)
+
+            debug_info("Adding kern of size " .. kern.kern .. "sp between " ..
+                           unicode.utf8.char(prev.char) .. " and " ..
+                           unicode.utf8.char(n.next.char))
+            -- If there is a disc between the chars, insert the kern
+            -- in the replacement text (unless there is something in
+            -- there), otherwise just insert directly
+            if n.prev.id == node.id"disc" then
+                n.prev.replace = n.prev.replace or kern
+            else
+                head = node.insert_before(head, n, kern)
+            end
+        end
+        distance = distance + 1
+    end
+
+    return head
+end
+
 function process_ligatures(nodes,tail)
   if not suppression_on then
     return -- suppression disabled
@@ -171,6 +215,7 @@ function process_ligatures(nodes,tail)
       current_node = t
     end
   end
+  add_kerns(nodes)
 end -- end of function process_ligatures(nodes,tail)
 
 function suppress_liga(s,t)
